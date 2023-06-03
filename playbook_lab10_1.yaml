@@ -1,0 +1,103 @@
+#this is a playbook for the first VM in lab 10
+
+- hosts: all
+  become: yes
+  tasks:
+    - name: update all
+      apt:
+        update_cache: yes
+
+    - name: install nginx
+      apt:
+        name: nginx
+
+    - name: install php-fpm
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - php-fpm
+        - php-mysql
+        - php-curl
+        - php-gd
+        - php-mbstring
+        - php-xml
+        - php-xmlrpc
+        - php-zip
+
+    - name: Start Nginx service
+      service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: clone opencart repository
+      git:
+        repo: https://github.com/opencart/opencart.git
+        dest: /home/webroot/zavadka.local
+
+    - name: rename config file in upload
+      command: mv /home/webroot/zavadka.local/upload/config-dist.php /home/webroot/zavadka.local/upload/config.php
+
+    - name: rename config file in admin
+      command: mv /home/webroot/zavadka.local/upload/admin/config-dist.php /home/webroot/zavadka.local/upload/admin/config.php
+
+    - name: set ownership of /home/webroot/zavadka.local to www-data
+      file:
+        path: /home/webroot/zavadka.local
+        owner: www-data
+        group: www-data
+        recurse: yes
+
+    - name: Create Nginx SSL directory
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+
+    - name: Generate SSL private key
+      openssl_privatekey:
+        path: /etc/nginx/ssl/private.key
+        size: 2048
+
+    - name: Generate CSR (Certificate Signing Request)
+      openssl_csr:
+        path: /etc/nginx/ssl/csr.pem
+        privatekey_path: /etc/nginx/ssl/private.key
+        common_name: "zavadka.local"
+
+    - name: Generate self-signed SSL certificate
+      openssl_certificate:
+        path: /etc/nginx/ssl/certificate.crt
+        privatekey_path: /etc/nginx/ssl/private.key
+        csr_path: /etc/nginx/ssl/csr.pem
+        provider: selfsigned
+        selfsigned_notAfter: "+365d"
+
+    - name: configure virtualhost
+      copy:
+        content: |
+          server {
+              listen 443 ssl;
+              server_name zavadka.local;
+              ssl_certificate /etc/nginx/ssl/certificate.crt;
+              ssl_certificate_key /etc/nginx/ssl/private.key;
+              root /home/webroot/zavadka.local/upload;
+              index index.php index.htm index.html;
+              location / { try_files $uri $uri/ /index.php?$args;
+              }
+              location ~ .php$ {
+              fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+              fastcgi_index index.php;
+              fastcgi_read_timeout 240;
+              fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;             
+              include fastcgi_params;
+              fastcgi_split_path_info ^(.+.php)(/.+)$;
+              }
+          }
+        dest: /etc/nginx/conf.d/opencart.conf
+
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted

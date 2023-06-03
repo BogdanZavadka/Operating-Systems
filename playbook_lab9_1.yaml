@@ -1,0 +1,87 @@
+#this is a playbook for the first VM in lab 9
+
+
+- hosts: all
+  become: yes
+  tasks:
+    - name: update all
+      apt:
+        update_cache: yes
+
+    - name: install nginx
+      apt:
+        name: nginx
+
+    - name: install php-fpm
+      apt:
+        name: php-fpm
+
+    - name: Start Nginx service
+      service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: create php-file
+      copy:
+        dest: /var/www/html/index.php
+        content: |
+          <?php
+              phpinfo();
+          ?>
+
+    - name: Create Nginx SSL directory
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+
+    - name: Generate SSL private key
+      openssl_privatekey:
+        path: /etc/nginx/ssl/private.key
+        size: 2048
+
+    - name: Generate CSR (Certificate Signing Request)
+      openssl_csr:
+        path: /etc/nginx/ssl/csr.pem
+        privatekey_path: /etc/nginx/ssl/private.key
+        common_name: "192.168.0.150"
+
+    - name: Generate self-signed SSL certificate
+      openssl_certificate:
+        path: /etc/nginx/ssl/certificate.crt
+        privatekey_path: /etc/nginx/ssl/private.key
+        csr_path: /etc/nginx/ssl/csr.pem
+        provider: selfsigned
+        selfsigned_notAfter: "+365d"
+
+    - name: add ssl
+      copy:
+        content: |
+          server {
+            listen 80 default_server;
+            listen [::]:80 default_server;
+            listen 443 ssl;
+            listen [::]:443 ssl;
+            root /var/www/html;
+
+            index index.php;
+
+            server_name _;
+            ssl_certificate /etc/nginx/ssl/certificate.crt;
+            ssl_certificate_key /etc/nginx/ssl/private.key;
+            location / {
+              try_files $uri $uri/ =404;
+            }
+
+            location ~ \.php$ {
+              include snippets/fastcgi-php.conf;
+              fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+            }
+          }
+        dest: /etc/nginx/sites-available/default
+
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted

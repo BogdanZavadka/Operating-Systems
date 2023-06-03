@@ -1,0 +1,19 @@
+#this is a playbook for the second VM in lab 9
+
+
+- hosts: all
+  become: yes
+  tasks:
+    - name: update all
+      apt:
+        update_cache: yes
+
+    - name: install mysql
+      apt:
+        name: mysql-server
+
+    - name: enable mysql
+      service:
+        name: mysql
+        state: started
+        enabled: true
